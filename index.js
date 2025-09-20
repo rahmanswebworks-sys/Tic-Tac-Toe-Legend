@@ -359,23 +359,27 @@ app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
     next();
-})
+});
 
 app.get('/', (req, res) => {
     res.status(200).send('<h1>Tic Tac Toe Legend</h1><a href="/info">info</a>');
 })
 
+app.head("/", (req, res) => {
+    res.sendStatus(200);
+});
+
 app.get('/leaderboard', (req, res) => {
     res.status(200).send(getLeaderboard());
-})
+});
 
 app.get('/users', (req, res) => {
     res.status(200).send(JSON.stringify(users));
-})
+});
 
 app.get('/connection_logs', (req, res) => {
     res.status(200).send(connection_logs);
-})
+});
 
 app.get('/info', (req, res) => {
     res.status(200).send(`
@@ -387,7 +391,7 @@ app.get('/info', (req, res) => {
     <br>online users: ${wss.clients.size}
     <br>started on: ${new Date(startedDateTime).toString()}
     `)
-})
+});
 
 app.get('/rooms', (req, res) => {
     res.status(200).send(JSON.stringify(rooms.map(r => {
@@ -398,7 +402,7 @@ app.get('/rooms', (req, res) => {
 
         return rr;
     })))
-})
+});
 
 const PORT = process.env.PORT || 3000;
 
