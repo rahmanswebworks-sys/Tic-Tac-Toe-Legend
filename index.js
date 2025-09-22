@@ -366,7 +366,7 @@ app.get('/', (req, res) => {
 })
 
 app.head("/", (req, res) => {
-    console.log('A head req');
+    connection_logs += '<h1>HEAD REQ</h1>';
     res.sendStatus(200);
 });
 
