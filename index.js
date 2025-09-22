@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('ws');
 const { readFileSync, writeFile } = require('fs');
+const { randomBytes } = require('crypto');
 const os = require('os');
 const app = express();
 const server = http.createServer(app);
@@ -11,18 +12,23 @@ const rooms = [];
 let users = [];
 const startedDateTime = Date.now();
 const A_POINT = 15;
-let connection_logs = 'connection logs : <br>';
 
 try {
     users = JSON.parse(readFileSync('users.json', 'utf-8'));
 } catch (err) {
-    console.error('<= Failed to read users.json =>');
+    console.error('<= Failed to read users.json =>', err);
 }
 
 wss.on('connection', (ws) => {
-    connection_logs += `connection at ${new Date().toLocaleString()}<br>`;
     ws.on('message', (msg) => {
-        const decoded_msg = JSON.parse(msg);
+        let decoded_msg;
+
+        try {
+            decoded_msg = JSON.parse(msg.toString());
+        } catch (err) {
+            console.error(err.name + ': ' + err.message);
+            return;
+        }
 
         switch (decoded_msg.action) {
             case 'play':
@@ -65,7 +71,7 @@ wss.on('connection', (ws) => {
                                 action: 'player_disconnected',
                             }))
 
-                            rooms.splice(roomIndex, 1);
+                            if (roomIndex > -1) rooms.splice(roomIndex, 1);
                         })
 
                         freeRoom.player1.socket.send(JSON.stringify({
@@ -88,7 +94,7 @@ wss.on('connection', (ws) => {
                                 action: 'player_disconnected',
                             }))
 
-                            rooms.splice(roomIndex, 1);
+                            if (roomIndex > -1) rooms.splice(roomIndex, 1);
                         })
 
                     } else {
@@ -121,7 +127,7 @@ wss.on('connection', (ws) => {
 
                         if (decoded_msg.type === 'private' && decoded_msg.createRoom) {
                             room.private = true;
-                            room.code = getCode(roomId);
+                            room.code = getRoomCode(roomId);
                         }
 
                         rooms.push(room);
@@ -135,7 +141,7 @@ wss.on('connection', (ws) => {
                         }))
 
                         setTimeout(() => {
-                            if (room.vacant) {
+                            if (room && room.vacant) {
                                 const roomIndex = rooms.findIndex(r => r.id === room.id);
 
                                 if (room.player1 && room.player1.socket.readyState === 1) room.player1.socket.send(JSON.stringify({
@@ -144,7 +150,7 @@ wss.on('connection', (ws) => {
                                     roomId,
                                 }))
 
-                                rooms.splice(roomIndex, 1);
+                                if (roomIndex > -1) rooms.splice(roomIndex, 1);
                             }
                         }, 1800000);
                     }
@@ -169,7 +175,7 @@ wss.on('connection', (ws) => {
                         }))
                     }
 
-                    rooms.splice(roomIndex, 1);
+                    if (roomIndex > -1) rooms.splice(roomIndex, 1);
                 }
                 break;
             case 'ready':
@@ -294,14 +300,16 @@ wss.on('connection', (ws) => {
                         id,
                         profile: null,
                         points: 0
-                    })
+                    });
 
-                    writeFile('users.json', JSON.stringify(users), () => { });
+                    writeFile('users.json', JSON.stringify(users), (err) => {
+                        if (err) console.error("Failed to save users.json", err);
+                    });
 
                     ws.send(JSON.stringify({
                         action: 'user_id',
                         id
-                    }))
+                    }));
                 }
                 break;
             case 'update_user_profile':
@@ -312,7 +320,9 @@ wss.on('connection', (ws) => {
 
                     user.profile = decoded_msg.profile;
                     broadcastLeaderboard();
-                    writeFile('users.json', JSON.stringify(users), () => { });
+                    writeFile('users.json', JSON.stringify(users), (err) => {
+                        if (err) console.error("Failed to save users.json", err);
+                    });
                 }
                 break;
             case 'add_points':
@@ -323,15 +333,20 @@ wss.on('connection', (ws) => {
 
                     user.points += A_POINT;
                     broadcastLeaderboard();
-                    writeFile('users.json', JSON.stringify(users), () => { });
+                    writeFile('users.json', JSON.stringify(users), (err) => {
+                        if (err) console.error("Failed to save users.json", err);
+                    });
                 }
+                break;
+            case 'ping':
+                ws.send(JSON.stringify({ action: 'pong' }));
                 break;
         }
     })
 })
 
 function getLeaderboard() {
-    let players = JSON.parse(JSON.stringify(users.filter(u => u.profile)));
+    let players = users.filter(u => u.profile);
     players.sort((a, b) => b.points - a.points);
     return JSON.stringify(players);
 }
@@ -347,12 +362,16 @@ function broadcastLeaderboard() {
     })
 }
 
-function getCode(id) {
-    return Math.floor(Math.random() * 89465373 / (Math.random() * 100) + Math.random() * 55236) + '-r' + id
+function randomCode(len = 8) {
+    return randomBytes(Math.ceil(len / 2)).toString('hex').slice(0, len);
+}
+
+function getRoomCode(id) {
+    return randomCode() + '-r' + id
 }
 
 function getUserId() {
-    return Math.floor(Math.random() * 9565255895052754475 / (Math.random() * 10787450) + Math.random() * 5526655765353436) + '-' + (users.length + 1);
+    return randomCode() + '-' + (users.length + 1);
 }
 
 app.use((req, res, next) => {
@@ -362,27 +381,26 @@ app.use((req, res, next) => {
 });
 
 app.get('/', (req, res) => {
+    res.type('html');
     res.status(200).send('<h1>Tic Tac Toe Legend</h1><a href="/info">info</a>');
 })
 
 app.head("/", (req, res) => {
-    connection_logs += '<h1>HEAD REQ</h1>';
     res.sendStatus(200);
 });
 
 app.get('/leaderboard', (req, res) => {
+    res.type('json');
     res.status(200).send(getLeaderboard());
 });
 
 app.get('/users', (req, res) => {
+    res.type('json');
     res.status(200).send(JSON.stringify(users));
 });
 
-app.get('/connection_logs', (req, res) => {
-    res.status(200).send(connection_logs);
-});
-
 app.get('/info', (req, res) => {
+    res.type('html');
     res.status(200).send(`
     Tic Tac Toe Legend
     <br>status: <span style="color: green">running</span> on ${os.type()} ${os.arch()}
@@ -395,6 +413,7 @@ app.get('/info', (req, res) => {
 });
 
 app.get('/rooms', (req, res) => {
+    res.type('json');
     res.status(200).send(JSON.stringify(rooms.map(r => {
         const rr = JSON.parse(JSON.stringify(r));
 
@@ -408,3 +427,5 @@ app.get('/rooms', (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+console.log('Tic Tac Toe');
